@@ -33,7 +33,7 @@ import json, pprint, re, sys
 from envvars      import cEnvVars
 from httphandler  import cHttpError, cHttpRequest, cHttpResponse
 from iptables     import cIPTables
-from microservice import ServerMain
+from tcpserver    import ServerMain
 from threading    import Lock, Thread
 
 g_debug = False
@@ -42,20 +42,20 @@ g_lock = Lock()
 g_version = "v1"
 
 #-------------------------------------------------------------------------------
-def constructGetResponseData(ipvx, ipt, request, content_out):
+def constructGetMethodResponseData(ipvx, ipt, request, content_out):
 	# rule set by key
 	def extract_rule_1(lookup, src, dest, error_message):
 		if lookup is None: raise cHttpError(request, 400, error_message)
-		index_out = 0
+		dest["rules"] = []
 		for rule_number in lookup:
-			dest[index_out] = src[rule_number]
-			index_out += 1
+			pprint.pprint(dest)
+			dest["rules"].append(src[rule_number])
 
 	# rule with unique value
 	def extract_rule_2(value, lookup, src, dest, error_message):
 		rule_number = lookup.get(value, None)
 		if rule_number is None: raise cHttpError(request, 400, error_message)
-		dest[0] = src[rule_number]
+		dest["rules"] = [ src[rule_number] ]
 
 	# construct the top level dictionary: ipv4 or ipv6
 	content_out[ipvx] = { "datetime": ipt[ipvx]["datetime"], "rules": dict() }
@@ -79,20 +79,20 @@ def constructGetResponseData(ipvx, ipt, request, content_out):
 		}
 		extract_rule_1(action.get(request.filter_arg, None),
 		               ipt[ipvx]["rules"],
-		               content_out[ipvx]["rules"],
+		               content_out[ipvx],
 		               "Invalid filter action. Valid actions: accept drop")
 	elif request.filter_name == "comment":
 		extract_rule_2(request.filter_arg,
 		               ipt[ipvx]["bycomment"],
 		               ipt[ipvx]["rules"],
-		               content_out[ipvx]["rules"],
+		               content_out[ipvx],
 		               "Comment not found.")
 	elif request.filter_name == "port":
 		if request.filter_arg is None: raise cHttpError(request, 400, "Port number missing")
 		extract_rule_2(int(request.filter_arg),
 		               ipt[ipvx]["byport"],
 		               ipt[ipvx]["rules"],
-		               content_out[ipvx]["rules"],
+		               content_out[ipvx],
 		               "Port number not found.")
 	elif request.filter_name == "protocol":
 		protocol = {
@@ -102,7 +102,7 @@ def constructGetResponseData(ipvx, ipt, request, content_out):
 		}
 		extract_rule_1(protocol.get(request.filter_arg, None),
 		               ipt[ipvx]["rules"],
-		               content_out[ipvx]["rules"],
+		               content_out[ipvx],
 		               "Invalid filter protocol. Valid protocols: icmp tcp udp")
 	else:
 		raise cHttpError(request, 400, "Invalid filter name. Valid names: action comment port protocol")
@@ -145,7 +145,7 @@ def execOpenClose(request):
 #-------------------------------------------------------------------------------
 # Fetch content based on the path and filter arguments, return in json format
 #
-# Only one filter per request, additional filters will be ignored
+# Only one filter per request
 #
 # /v1/rules
 # /v1/rules?action=[accept|drop]
@@ -164,11 +164,11 @@ def getContent(request):
 
 	if len(request.path_parts)==2 or (len(request.path_parts)>2 and request.path_parts[2]=="ipv4"):
 		constructHrefs("ipv4", ipt, request)
-		constructGetResponseData("ipv4", ipt, request, content_out)
+		constructGetMethodResponseData("ipv4", ipt, request, content_out)
 
 	if len(request.path_parts)==2 or (len(request.path_parts)>2 and request.path_parts[2]=="ipv6"):
 		constructHrefs("ipv6", ipt, request)
-		constructGetResponseData("ipv6", ipt, request, content_out)
+		constructGetMethodResponseData("ipv6", ipt, request, content_out)
 
 	return json.dumps(content_out)
 
